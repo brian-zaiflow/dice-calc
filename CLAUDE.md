@@ -50,5 +50,5 @@ Everything lives in a single sketch file: `dice_calc/dice_calc.ino`
 
 ### Pin assignments
 
-- Keypad rows: D2-D6, columns: D7-D10
+- Keypad rows: D2-D6 + A0, columns: D7-D12
 - OLED: I2C on A4 (SDA) / A5 (SCL), address 0x3C

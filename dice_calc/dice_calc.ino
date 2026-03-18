@@ -4,22 +4,23 @@
 // Hardware:
 //   - Arduino Uno/Nano (or any ATmega328P board)
 //   - SSD1306 128x64 OLED (I2C: SDA=A4, SCL=A5)
-//   - 4x5 matrix keypad (20 keys)
+//   - 6x6 matrix keypad (26 active keys)
 //
 // Libraries (install via Arduino Library Manager):
 //   - Adafruit SSD1306
 //   - Adafruit GFX
 //   - Keypad (by Mark Stanley & Alexander Brevig)
 //
-// Keypad physical layout (4 cols x 5 rows):
-//   Row 0:  [ C ] [ ( ] [ ) ] [ / ]
-//   Row 1:  [ 7 ] [ 8 ] [ 9 ] [ * ]
-//   Row 2:  [ 4 ] [ 5 ] [ 6 ] [ - ]
-//   Row 3:  [ 1 ] [ 2 ] [ 3 ] [ + ]
-//   Row 4:  [ d ] [ 0 ] [ <- ] [ = ]
+// Keypad physical layout (6 cols x 6 rows):
+//   Row 0:  [d4 ] [d6 ] [d8 ] [d10] [d12] [d20]   <- dice shortcuts
+//   Row 1:  [ C ] [ ( ] [ ) ] [ / ] [   ] [   ]
+//   Row 2:  [ 7 ] [ 8 ] [ 9 ] [ * ] [   ] [   ]
+//   Row 3:  [ 4 ] [ 5 ] [ 6 ] [ - ] [   ] [   ]
+//   Row 4:  [ 1 ] [ 2 ] [ 3 ] [ + ] [   ] [   ]
+//   Row 5:  [ d ] [ 0 ] [ <- ] [ = ] [   ] [   ]
 //
 // Pin assignments (adjust to match your wiring):
-//   Rows: D2-D6   Cols: D7-D10
+//   Rows: D2-D6, A0   Cols: D7-D12
 // ============================================================
 
 #include <Wire.h>
@@ -34,20 +35,24 @@
 Adafruit_SSD1306 display(SCREEN_W, SCREEN_H, &Wire, OLED_RESET);
 
 // --- Keypad setup ---
-const byte ROWS = 5;
-const byte COLS = 4;
+const byte ROWS = 6;
+const byte COLS = 6;
 
+// Dice shortcut keys use chars A-G to distinguish from regular keys:
+//   A=d4, B=d6, H=d8, E=d10, F=d12, G=d20
+// Unused grid positions are 0 (treated as NO_KEY).
 char hexaKeys[ROWS][COLS] = {
-  {'C', '(', ')', '/'},
-  {'7', '8', '9', '*'},
-  {'4', '5', '6', '-'},
-  {'1', '2', '3', '+'},
-  {'d', '0', '<', '='}
+  {'A', 'B', 'H', 'E', 'F', 'G'},   // dice shortcuts
+  {'C', '(', ')', '/',  0,   0 },
+  {'7', '8', '9', '*',  0,   0 },
+  {'4', '5', '6', '-',  0,   0 },
+  {'1', '2', '3', '+',  0,   0 },
+  {'d', '0', '<', '=',  0,   0 }
 };
 
 // Adjust these pin numbers to match your wiring
-byte rowPins[ROWS] = {2, 3, 4, 5, 6};
-byte colPins[COLS] = {7, 8, 9, 10};
+byte rowPins[ROWS] = {2, 3, 4, 5, 6, A0};
+byte colPins[COLS] = {7, 8, 9, 10, 11, 12};
 
 Keypad keypad = Keypad(makeKeymap(hexaKeys), rowPins, colPins, ROWS, COLS);
 
@@ -67,6 +72,9 @@ char resolved[MAX_RESOLVED + 1];
 long finalResult = 0;
 bool hasResult = false;
 bool hasError  = false;
+
+// --- Dice shortcut state ---
+int lastDiceSides = 0;  // tracks repeat-press incrementing
 
 // --- Roll animation ---
 #define ROLL_ANIM_FRAMES 6
@@ -97,11 +105,123 @@ void setup() {
 }
 
 // ============================================================
+// DICE SHORTCUT HELPERS
+// ============================================================
+
+// Map keypad char to die sides (0 = not a dice shortcut)
+int getDiceSides(char key) {
+  switch (key) {
+    case 'A': return 4;
+    case 'B': return 6;
+    case 'H': return 8;
+    case 'E': return 10;
+    case 'F': return 12;
+    case 'G': return 20;
+    default:  return 0;
+  }
+}
+
+// Handle a dice shortcut press.  Mirrors the v2 prototype logic:
+//  - Same shortcut again → increment count (d6 → 2d6 → 3d6)
+//  - Different shortcut  → auto-insert '+' then append dN
+void handleDiceShortcut(int sides) {
+  if (hasResult) {
+    clearCalc();
+  }
+
+  // --- repeat-press: increment count of the trailing NdM ---
+  if (lastDiceSides == sides && exprLen > 0) {
+    // Walk back past the sides digits
+    int pos = exprLen - 1;
+    while (pos >= 0 && isDigit(expr[pos])) pos--;
+
+    // Should now be sitting on 'd'
+    if (pos >= 0 && expr[pos] == 'd') {
+      int dPos = pos;
+      pos--;
+      // Walk back past the count digits
+      while (pos >= 0 && isDigit(expr[pos])) pos--;
+      int countStart = pos + 1;
+
+      int count = 1;
+      if (countStart < dPos) {
+        char buf[6] = {0};
+        for (int i = 0; i < dPos - countStart && i < 5; i++)
+          buf[i] = expr[countStart + i];
+        count = atoi(buf);
+      }
+      count++;
+
+      // Rebuild tail: <count>d<sides>
+      char tail[16];
+      char countBuf[6];
+      itoa(count, countBuf, 10);
+      char sidesBuf[6];
+      itoa(sides, sidesBuf, 10);
+
+      int tl = 0;
+      for (int i = 0; countBuf[i]; i++) tail[tl++] = countBuf[i];
+      tail[tl++] = 'd';
+      for (int i = 0; sidesBuf[i]; i++) tail[tl++] = sidesBuf[i];
+      tail[tl] = '\0';
+
+      exprLen = countStart;
+      for (int i = 0; tail[i] && exprLen < MAX_EXPR; i++)
+        expr[exprLen++] = tail[i];
+      expr[exprLen] = '\0';
+
+      lastDiceSides = sides;
+      return;
+    }
+  }
+
+  // --- first press or different shortcut ---
+  // Auto-insert '+' if the expression doesn't already end with
+  // an operator or open paren
+  if (exprLen > 0) {
+    char last = expr[exprLen - 1];
+    if (last != '+' && last != '-' && last != '*' &&
+        last != '/' && last != '(') {
+      if (exprLen < MAX_EXPR) {
+        expr[exprLen++] = '+';
+        expr[exprLen] = '\0';
+      }
+    }
+  }
+
+  // Append "dN"
+  char sidesBuf[6];
+  itoa(sides, sidesBuf, 10);
+
+  if (exprLen < MAX_EXPR) {
+    expr[exprLen++] = 'd';
+    expr[exprLen] = '\0';
+  }
+  for (int i = 0; sidesBuf[i] && exprLen < MAX_EXPR; i++) {
+    expr[exprLen++] = sidesBuf[i];
+  }
+  expr[exprLen] = '\0';
+
+  lastDiceSides = sides;
+}
+
+// ============================================================
 // MAIN LOOP
 // ============================================================
 void loop() {
   char key = keypad.getKey();
   if (!key) return;
+
+  // --- Dice shortcut keys (top row) ---
+  int sides = getDiceSides(key);
+  if (sides > 0) {
+    handleDiceShortcut(sides);
+    drawScreen();
+    return;
+  }
+
+  // Regular key resets dice-shortcut repeat tracking
+  lastDiceSides = 0;
 
   switch (key) {
     case 'C':
@@ -158,6 +278,7 @@ void clearCalc() {
   finalResult = 0;
   hasResult = false;
   hasError = false;
+  lastDiceSides = 0;
 }
 
 // ============================================================
