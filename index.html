@@ -3,30 +3,174 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DICE-CALC RP-20</title>
+<title>DICE-CALC RP-20 Prototype</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #1a1a18; font-family: 'Courier New', monospace; color: #F1EFE8; }
-  .container { text-align: center; max-width: 400px; padding: 20px; }
-  h1 { font-size: 28px; color: #97C459; letter-spacing: 3px; margin-bottom: 8px; }
-  .subtitle { font-size: 13px; color: #639922; margin-bottom: 40px; }
-  a { display: block; margin: 12px 0; padding: 16px 24px; background: #2C2C2A; border: 1px solid #444441; border-radius: 10px; color: #97C459; text-decoration: none; font-size: 15px; font-family: 'Courier New', monospace; transition: border-color 0.15s, background 0.15s; }
-  a:hover { background: #3a3a38; border-color: #639922; }
-  .label { font-size: 11px; color: #888; margin-top: 4px; }
+  body { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #1a1a18; font-family: 'Courier New', monospace; }
+  #shell { width: 340px; background: #2C2C2A; border-radius: 16px; padding: 20px 16px 16px; border: 1px solid #444441; }
+  .title { text-align: center; margin-bottom: 12px; font-size: 11px; letter-spacing: 3px; color: #97C459; }
+  #screen { background: #173404; border-radius: 8px; padding: 12px 14px; margin-bottom: 16px; border: 2px solid #27500A; min-height: 72px; display: flex; flex-direction: column; justify-content: flex-end; }
+  #expr { font-size: 13px; color: #639922; text-align: right; min-height: 18px; word-break: break-all; }
+  #result { font-size: 28px; color: #97C459; text-align: right; min-height: 34px; word-break: break-all; }
+  #rolls-display { display: none; background: #27500A; border-radius: 6px; padding: 8px 10px; margin-bottom: 12px; }
+  #rolls-label { font-size: 11px; color: #639922; margin-bottom: 4px; }
+  #rolls-detail { font-size: 13px; color: #97C459; word-break: break-all; }
+  #dice-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-bottom: 6px; }
+  .divider { height: 1px; background: #444441; margin: 6px 0; }
+  #keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .kbtn { font-family: 'Courier New', monospace; font-size: 15px; font-weight: bold; border: none; border-radius: 8px; padding: 14px 0; cursor: pointer; transition: transform 0.06s, filter 0.06s; text-align: center; user-select: none; }
+  .kbtn:active { transform: scale(0.94); filter: brightness(0.85); }
+  .k-num { background: #444441; color: #F1EFE8; }
+  .k-op { background: #854F0B; color: #FAEEDA; }
+  .k-dice { background: #0F6E56; color: #E1F5EE; }
+  .k-eq { background: #639922; color: #173404; }
+  .k-fn { background: #5F5E5A; color: #D3D1C7; }
+  .k-dshort { background: #0F6E56; color: #E1F5EE; font-size: 13px; padding: 10px 0; }
 </style>
 </head>
 <body>
-<div class="container">
-  <h1>DICE-CALC RP-20</h1>
-  <p class="subtitle">retro dice calculator for tabletop RPGs</p>
-  <a href="dice_calc_prototype_v2.html">
-    v2 — dice shortcut keys
-    <div class="label">d4 / d6 / d8 / d10 / d12 / d20 dedicated buttons</div>
-  </a>
-  <a href="dice_calc_prototype.html">
-    v1 — original layout
-    <div class="label">4x5 keypad with generic d key</div>
-  </a>
+<div id="shell">
+  <div class="title">DICE-CALC RP-20</div>
+  <div id="screen">
+    <div id="expr"></div>
+    <div id="result">0</div>
+  </div>
+  <div id="rolls-display">
+    <div id="rolls-label">individual rolls</div>
+    <div id="rolls-detail"></div>
+  </div>
+  <div id="dice-row"></div>
+  <div class="divider"></div>
+  <div id="keys"></div>
 </div>
+<script>
+const diceShortcuts = [
+  {l:'d4', sides:4}, {l:'d6', sides:6}, {l:'d8', sides:8},
+  {l:'d10', sides:10}, {l:'d12', sides:12}, {l:'d20', sides:20},
+];
+const diceRow = document.getElementById('dice-row');
+diceShortcuts.forEach(d => {
+  const b = document.createElement('button');
+  b.className = 'kbtn k-dshort';
+  b.textContent = d.l;
+  b.onclick = () => pressDiceShortcut(d.sides);
+  diceRow.appendChild(b);
+});
+
+const keys = [
+  {l:'C', c:'k-fn', a:'clear'}, {l:'(', c:'k-op', a:'('}, {l:')', c:'k-op', a:')'}, {l:'\u00F7', c:'k-op', a:'/'},
+  {l:'7', c:'k-num', a:'7'}, {l:'8', c:'k-num', a:'8'}, {l:'9', c:'k-num', a:'9'}, {l:'\u00D7', c:'k-op', a:'*'},
+  {l:'4', c:'k-num', a:'4'}, {l:'5', c:'k-num', a:'5'}, {l:'6', c:'k-num', a:'6'}, {l:'-', c:'k-op', a:'-'},
+  {l:'1', c:'k-num', a:'1'}, {l:'2', c:'k-num', a:'2'}, {l:'3', c:'k-num', a:'3'}, {l:'+', c:'k-op', a:'+'},
+  {l:'d', c:'k-dice', a:'d'}, {l:'0', c:'k-num', a:'0'}, {l:'\u232B', c:'k-fn', a:'back'}, {l:'=', c:'k-eq', a:'='},
+];
+const grid = document.getElementById('keys');
+keys.forEach(k => {
+  const b = document.createElement('button');
+  b.className = 'kbtn ' + k.c;
+  b.textContent = k.l;
+  b.onclick = () => press(k.a);
+  grid.appendChild(b);
+});
+
+let input = '';
+let justEvaluated = false;
+let lastDiceSides = null;
+const exprEl = document.getElementById('expr');
+const resultEl = document.getElementById('result');
+const rollsDisp = document.getElementById('rolls-display');
+const rollsDet = document.getElementById('rolls-detail');
+
+function displayExpr() {
+  exprEl.textContent = input.replace(/\*/g, '\u00D7').replace(/\//g, '\u00F7');
+}
+
+function pressDiceShortcut(sides) {
+  rollsDisp.style.display = 'none';
+
+  if (justEvaluated) {
+    input = '';
+    justEvaluated = false;
+    lastDiceSides = null;
+  }
+
+  // If the last action was the same dice shortcut, increment the count
+  if (lastDiceSides === sides) {
+    const regex = new RegExp('(\\d*)d' + sides + '$');
+    const match = input.match(regex);
+    if (match) {
+      const currentCount = parseInt(match[1] || '1');
+      const newCount = currentCount + 1;
+      input = input.replace(regex, newCount + 'd' + sides);
+      lastDiceSides = sides;
+      displayExpr();
+      return;
+    }
+  }
+
+  // Otherwise append a new dice expression
+  if (input.length > 0 && !/[+\-*/(]$/.test(input)) {
+    input += '+';
+  }
+  input += 'd' + sides;
+  lastDiceSides = sides;
+  displayExpr();
+}
+
+function press(a) {
+  rollsDisp.style.display = 'none';
+  lastDiceSides = null;
+
+  if (a === 'clear') { input = ''; resultEl.textContent = '0'; exprEl.textContent = ''; justEvaluated = false; return; }
+  if (a === 'back') {
+    if (justEvaluated) { input = ''; resultEl.textContent = '0'; exprEl.textContent = ''; justEvaluated = false; return; }
+    input = input.slice(0, -1);
+    displayExpr();
+    justEvaluated = false;
+    return;
+  }
+  if (a === '=') { evaluate(); return; }
+  if (justEvaluated && /[0-9d]/.test(a)) { input = ''; justEvaluated = false; }
+  else { justEvaluated = false; }
+  input += a;
+  displayExpr();
+}
+
+function evaluate() {
+  if (!input) return;
+  lastDiceSides = null;
+  try {
+    let allRolls = [];
+    let resolved = input.replace(/(\d*)d(\d+)/gi, (m, count, sides) => {
+      const n = parseInt(count || '1');
+      const s = parseInt(sides);
+      if (s < 1 || s > 9999 || n < 1 || n > 999) throw new Error('bad dice');
+      let rolls = [];
+      let sum = 0;
+      for (let i = 0; i < n; i++) {
+        const r = Math.floor(Math.random() * s) + 1;
+        rolls.push(r);
+        sum += r;
+      }
+      allRolls.push({notation: n+'d'+s, rolls});
+      return String(sum);
+    });
+    if (/[^0-9+\-*/().  ]/.test(resolved)) throw new Error('invalid');
+    const val = Function('"use strict"; return (' + resolved + ')')();
+    const rounded = Number.isInteger(val) ? val : Math.round(val * 100) / 100;
+    resultEl.textContent = rounded;
+    justEvaluated = true;
+    if (allRolls.length > 0) {
+      rollsDisp.style.display = 'block';
+      rollsDet.textContent = allRolls.map(g =>
+        g.notation + ': [' + g.rolls.join(', ') + '] = ' + g.rolls.reduce((a,b)=>a+b,0)
+      ).join('  ');
+    }
+  } catch(e) {
+    resultEl.textContent = 'ERR';
+    justEvaluated = true;
+  }
+}
+</script>
 </body>
 </html>
